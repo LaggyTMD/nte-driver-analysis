@@ -1,7 +1,11 @@
-# Neverness to Everness — Pre-Launch Driver Analysis Report
+# Neverness to Everness — Driver Analysis Report
 
-**Status:** Final — published 2026-04-28, one day before public launch (2026-04-29)
+**Status:** Final — published 2026-04-28; updated 2026-04-29 post-launch with retail-installer confirmation
+
+**Changelog 2026-04-29:** §C8 elevated from "pending observation" to FAIL based on retail-binary testing (SHA256 byte-identical to preload; WDAC deny-by-hash test confirms launcher requires successful kernel-mode load). TL;DR, §C6, §Summary, §Recommendations, and §"What we cannot determine" updated accordingly. Static-analysis findings §C1–§C7 unchanged.
+
 **Subject:** the kernel anti-cheat driver `GameDriverX64.sys` shipped with the Neverness to Everness (NTE) preload installer
+
 **Scope:** verification of public CVE-2025-61155 in the newly-shipped NTE driver build (`GameDriverX64.sys`, internal version `8.26.2.9`, dated 2026-02-09).
 
 ---
@@ -12,7 +16,7 @@ Neverness to Everness — a major gacha launch from Hotta Studio / Perfect World
 
 The driver is **signed under a brand-new corporate name** (`N2E Entertainment PTE. LTD.`, Singapore, cert valid through 2028) — different from the prior `Fedeen Games Limited` signer used elsewhere in the same install. The new cert is **verified absent** from the May 2025 published Microsoft Vulnerable Driver Blocklist. Ransomware operators (Interlock's "Hotta Killer" tool, January 2026; the "Reynolds" family, February 2026) already weaponize this exact driver class against defensive software on victim machines, and each PC install of NTE adds the same primitive — signed, loadable, and on disk — to the local attack surface.
 
-Findings indicate the BYOVD risk profile documented in CVE-2025-61155 is fully present in the NTE driver. Mitigations available to operators: a WDAC policy blocking `GameDriverX64.sys` by hash, Microsoft Defender ASR's "Block abuse of exploited vulnerable signed drivers" rule, the Microsoft Vulnerable Driver Blocklist (Core Isolation → Memory Integrity), or playing on platforms that don't ship a Windows kernel driver (mobile, console). See the Recommendations section for audience-specific guidance.
+Findings indicate the BYOVD risk profile documented in CVE-2025-61155 is fully present in the NTE driver. On Windows, the kernel-mode driver load is a hard requirement for gameplay (verified §C8): WDAC deny-by-hash and the Microsoft Vulnerable Driver Blocklist both prevent the game from running rather than allowing safe play. The only client-side options that let you both play NTE and avoid the driver are platforms that don't ship one — mobile and console builds. See the Recommendations section for audience-specific guidance.
 
 ---
 
@@ -232,6 +236,8 @@ The PE import table includes `PsGetProcessPeb`, `PsGetProcessWow64Process`, `Rtl
 
 The NTE driver was built **the day after** the Reynolds ransomware disclosure and **four days after** Vespalec's deep-dive writeup that documented every primitive analyzed in this report. The build is unambiguously **post-disclosure**: the vulnerabilities were publicly documented before this binary was produced.
 
+The cert rotation predates the CVE by eight weeks; the rebuild followed Vespalec's analysis by four days; the public launch came eleven weeks later.
+
 ---
 
 ## C7 — signing chain
@@ -260,22 +266,15 @@ Microsoft's **Vulnerable Driver Blocklist** (auto-enforced on Windows 11 with HV
 
 ## C8 — runtime load behavior
 
-We performed a Phase 1 capture during gameplay of the related title (Tower of Fantasy) on the same hardware/snapshot, comparing service state before, during, and after gameplay. The diff showed **no Hotta-named, Fedeen-named, or AC-shaped kernel service** loaded at any point. In our test, no anti-cheat driver was dropped to disk by the ToF installer in the first place — extending Vespalec's February 2026 observation (driver shipped but never loaded) to a stronger April 2026 finding: as of our test date, the driver is no longer shipped at all in current Tower of Fantasy.
+**Live retail driver SHA256 byte-identical to preload** (`9d89947b...c4b569`); §C1–§C7 apply unchanged.
 
-Because we did not run NTE through full gameplay (NTE has not yet launched), we cannot directly attest to NTE's runtime behavior. However:
+**Driver load is a hard runtime dependency.** A WDAC deny-by-hash policy was deployed in audit mode, then enforce. Audit logged Code Integrity event **3076** at game start (load attempted by `System` / PID 4); enforce promoted that to **3077**, the game errored with `0x7aab54` and exited within seconds, and the on-disk file remained byte-identical (no repair attempt). Deletion is separately rejected: the launcher re-downloads the file and demands a launcher restart.
 
-- ToF historically followed the "drop-but-don't-load" pattern (per Vespalec, Feb 2026).
-- ToF currently doesn't ship the driver at all (our April 2026 ToF install test).
-- NTE ships the driver again with cosmetic anti-static-analysis changes.
-- Tencent ACE handles the actual cheat enforcement on NTE (seven separate ACE drivers, including ARM64 variants).
-
-The most likely scenario is that NTE inherits the same dormant-driver behavior: **driver on disk for some legacy/telemetry purpose, never actually loaded by the game, but signed and ready for any local attacker to load on demand**. This is the worst-of-both-worlds posture Vespalec described: the user gets none of the protection (the driver isn't doing anti-cheat work) but absorbs all of the risk (the file is signed, loadable, and exploitable).
-
-We will revisit C8 once the launch occurs and the driver's runtime behavior can be observed directly.
+This is stronger than the ToF "drop-but-don't-load" pattern Vespalec documented — NTE actually requires the kernel-mode load to succeed. Tencent ACE is shipped alongside (seven separate ACE drivers including ARM64 variants) and is plausibly the primary cheat-enforcement layer; the runtime role of `GameDriverX64.sys` itself is not established by this analysis, but its load is non-optional from the launcher's perspective.
 
 ### Verdict
 
-**C8 — pending observation.** Strong prior likelihood of dropped-but-not-loaded based on the prior pattern with ToF. Either way, the file's mere presence on disk is itself the threat for a BYOVD primitive.
+**C8 — FAIL.** Successful kernel-mode load is a precondition for play. No Windows-native client-side mitigation blocks the driver without also breaking the game.
 
 ---
 
@@ -293,7 +292,9 @@ identity == SIMILAR (HtAntiCheatDriver family, version 2.0; PDB path "HtDriver2.
   C5 fails ✓
   C6 timestamp post-disclosure (2026-02-09)
   C7 cert chain rotated to N2E Entertainment (defenders must track the new thumbprint independently of any prior Hotta-affiliated identifiers)
-  C8 pending; prior likely
+  C8 fails ✓ (kernel-mode load required for gameplay; verified via WDAC
+              deny-by-hash test — game errors 0x7aab54 and exits when
+              load is blocked)
 
 CVSS 3.1 (C1+C5+C2 exploit chain), post-foothold impact:
   CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H = 7.8 High
@@ -333,9 +334,11 @@ A successful attacker who has obtained unprivileged code execution on the machin
 
 We cannot establish whether the rebuild was deliberate vulnerability-retention or negligence; whether `N2E Entertainment PTE. LTD.` is a Hotta subsidiary, contractor, or unrelated licensee; the full IOCTL code table (the documented codes are not present as literal byte patterns and may be runtime-constructed); or whether the NTE driver behaves identically to the CVE-era predecessor at runtime (in-VM dynamic tracing was out of scope). Whether Microsoft adds the cert to the Vulnerable Driver Blocklist in a future update is also unknown.
 
+We did not establish the runtime role of `GameDriverX64.sys` itself — only that its load is non-optional. Whether the driver does meaningful anti-cheat work, telemetry, license enforcement, or some other function is out of scope for static analysis. The C8 finding is structural (load required) rather than functional (purpose established).
+
 We also could not obtain the published CVE-era reference sample for byte-identical comparison: MalwareBazaar (by SHA1 / imphash / TLSH / multiple tag and signer searches), Wayback Machine, archive.org, and direct fetches of the major writeups (Vespalec, Fortinet, Securonix) all returned no driver binary. The Fortinet IOC table publishes only a SHA1 for the Interlock-renamed `UpdateCheckerX64.sys` variant, and that SHA1 is not in MalwareBazaar. The remaining paths are direct researcher contact (Vespalec, pollotherunner), Hybrid Analysis, or paid TIP access — none pursued here. This absence itself reflects a **disclosure-versus-availability gap**: CVE-2025-61155 has been public since October 2025 with active in-the-wild exploitation, but the sample binary is not in any open-access database, leaving defenders to block by hashes published in writeups, without independent access to verify newer variants like the one shipping in NTE.
 
-We analyzed the **preload** binary obtained prior to retail launch. The launch-day binary on retail servers may differ; findings in this report apply to the preload version specifically.
+**Update (2026-04-29, post-launch):** the retail launch installer ships `GameDriverX64.sys` with SHA256 identical to the preload binary analyzed here. Findings in this report apply unchanged to the live retail build.
 
 None of these limitations affect the core verdict — C1, C2, C3, C4, and C5 are confirmed independently from the disassembly of the NTE driver, the driver is signed and loadable, and that is enough to mark `do-not-install`.
 
@@ -345,10 +348,9 @@ None of these limitations affect the core verdict — C1, C2, C3, C4, and C5 are
 
 ### For individual players
 
-- **Do not install NTE on any PC that handles anything that matters** — work data, saved credentials, SSO sessions, password managers, banking sessions, SSH keys, cryptocurrency wallets, source code with proprietary content, etc.
-- **iOS / Android / console** are out of scope of this report and have substantially lower threat profiles. If you want to play NTE, prefer those.
-- **If you must play on PC, use a dedicated isolated machine** with no saved credentials, no SSO, no work data, and HVCI / Memory Integrity enabled. Note that this only mitigates *some* of the risk: the driver is signed and loadable, so even a hardened machine retains the BYOVD primitive on disk.
-- **If you've already installed NTE**, the immediate mitigation is to ensure Microsoft's Vulnerable Driver Blocklist is enabled (Windows Settings → Privacy & Security → Windows Security → Device Security → Core Isolation → "Microsoft Vulnerable Driver Blocklist") and to consider adding a custom WDAC policy that blocks `GameDriverX64.sys` by hash. Microsoft Defender ASR's "Block abuse of exploited vulnerable signed drivers" rule is a useful additional layer.
+- **Don't install NTE on a PC that matters** — work data, saved credentials, SSO sessions, password managers, banking, SSH keys, crypto wallets, proprietary source. The driver is signed and loadable; any subsequent unprivileged code execution on that host can weaponize it to disable EDR/AV.
+- **Prefer iOS / Android / console.** Those builds don't ship the kernel driver — substantially lower threat profile.
+- **The driver is non-optional on Windows.** File removal and a WDAC deny-by-hash policy were both tested and both prevent the game from running entirely (kernel-mode load is required for gameplay; §C8). The Microsoft Vulnerable Driver Blocklist would have the same effect if the driver were ever added to it. On Windows the choice is binary: play with the driver loaded, or don't play — there is no half-measure.
 
 ### For security teams / EDR vendors
 
@@ -356,6 +358,7 @@ None of these limitations affect the core verdict — C1, C2, C3, C4, and C5 are
 - The driver writes a log to `C:\Windows\Temp\wlog.txt` when loaded — useful detection telemetry for whether the file has actually been used.
 - The five IOCTL handlers all front-load a check against `0xFA123456` at the same offset relative to the input buffer. YARA rules built around this constant (the byte sequence `56 34 12 FA` followed by short proximity to `_strnicmp` and `ZwOpenProcess` calls) will catch this driver and any future variant that retains the magic.
 - As of the **May 2025 published Microsoft Vulnerable Driver Blocklist** (`10.0.27825.0`), neither this cert nor any Hotta-affiliated identifier is present. Consider pushing for inclusion via the standard Microsoft blocklist submission path (`https://www.microsoft.com/wdsi/`).
+- **Defender ASR's "Block abuse of exploited vulnerable signed drivers" rule is write-time only** per Microsoft's documentation: it prevents an application from writing a vulnerable signed driver to disk, but does **not** block an already-on-disk driver from loading. Mitigation against an installed `GameDriverX64.sys` requires the load-time path (Microsoft Vulnerable Driver Blocklist via HVCI / Memory Integrity, or a custom WDAC deny-by-hash policy).
 
 ---
 
