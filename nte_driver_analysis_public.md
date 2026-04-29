@@ -2,7 +2,9 @@
 
 **Status:** Final — published 2026-04-28; updated 2026-04-29 post-launch with retail-installer confirmation
 
-**Changelog 2026-04-29:** §C8 elevated from "pending observation" to FAIL based on retail-binary testing (SHA256 byte-identical to preload; WDAC deny-by-hash test confirms launcher requires successful kernel-mode load). TL;DR, §C6, §Summary, §Recommendations, and §"What we cannot determine" updated accordingly. Static-analysis findings §C1–§C7 unchanged.
+**Changelog 2026-04-29 (v2):** §C8 elevated from "pending observation" to FAIL based on retail-binary testing (SHA256 byte-identical to preload; WDAC deny-by-hash test confirms launcher requires successful kernel-mode load). TL;DR, §C6, §Summary, §Recommendations, and §"What we cannot determine" updated accordingly. Static-analysis findings §C1–§C7 unchanged.
+
+**Changelog 2026-04-29 (v3):** Added §C8 runtime residency observation and System Informer caveat; added "Privilege required to abuse the driver" subsection clarifying load vs. use privilege requirements (admin to load, standard user to abuse during the brief load window). No changes to §C1–§C7 verdicts or the overall do-not-install verdict.
 
 **Subject:** the kernel anti-cheat driver `GameDriverX64.sys` shipped with the Neverness to Everness (NTE) preload installer
 
@@ -272,6 +274,10 @@ Microsoft's **Vulnerable Driver Blocklist** (auto-enforced on Windows 11 with HV
 
 This is stronger than the ToF "drop-but-don't-load" pattern Vespalec documented — NTE actually requires the kernel-mode load to succeed. Tencent ACE is shipped alongside (seven separate ACE drivers including ARM64 variants) and is plausibly the primary cheat-enforcement layer; the runtime role of `GameDriverX64.sys` itself is not established by this analysis, but its load is non-optional from the launcher's perspective.
 
+**Runtime residency:** in audit-mode testing, `driverquery /v` (which queries the live kernel module list via `EnumDeviceDrivers`) returned empty before, during, and after gameplay; `Win32_SystemDriver` and `fltmc` likewise returned no match in any state. The Code Integrity log records exactly one 3076 load event per game launch (in enforce mode, two — likely a retry on failure). The driver therefore loads briefly during launcher startup, executes whatever startup-time work the launcher requires of it, and is unloaded before gameplay begins. The C8 verdict (FAIL — load required) is unchanged: the launcher will not run without a successful load. The driver's runtime residency is briefer than the gameplay session itself.
+
+**Caveat:** all four enumeration commands used here are Service Control Manager-based; they would miss a driver loaded without a persistent SCM service entry (a stealth-load pattern occasionally used by commercial anti-cheat). Authoritative cross-checks against the live kernel module list — tools like Sysinternals Process Explorer, System Informer, or WinObj that call `EnumDeviceDrivers` or `NtQuerySystemInformation` directly — cannot be reliably run during gameplay: Tencent ACE is documented as flagging and blocking System Informer specifically ([`winsiderss/systeminformer` issue #2729](https://github.com/winsiderss/systeminformer/issues/2729)) and terminates similar inspection tooling on detection. The transient-load conclusion is therefore consistent with the available SCM evidence but is not independently confirmed against the live kernel module list — an unresolved blindspot.
+
 ### Verdict
 
 **C8 — FAIL.** Successful kernel-mode load is a precondition for play. No Windows-native client-side mitigation blocks the driver without also breaking the game.
@@ -327,6 +333,23 @@ reason = "Modified HtAntiCheatDriver-family kernel driver with all five static-c
 ## Why this matters at scale
 
 A successful attacker who has obtained unprivileged code execution on the machine — via a malicious browser extension, a phishing macro, or any commodity-malware path — gains a kernel-side path to disable EDR/AV and escalate. NTE itself is not malware; the impact is that its install adds a known-vulnerable kernel primitive to the host's local attack surface for any subsequent attacker to weaponize.
+
+### Privilege required to abuse the driver
+
+The CVE-2025-61155 exploit chain (C5 → C1 → C2: rename a DLL to a whitelisted name, load it via `LoadLibrary`, open the device, send IOCTL with the hardcoded magic, call the kill primitive) requires **no administrator privilege once the driver is loaded.** Every step is performable by a normal user-mode process.
+
+| Action | Privilege required | When it happens |
+|---|---|---|
+| **Load** `GameDriverX64.sys` into the kernel | Administrator + `SeLoadDriverPrivilege` | The NTE launcher, automatically, on each game start — briefly, then unloads (§C8) |
+| **Use** the driver while it is loaded | Standard user | Any local process during the load window |
+
+For a typical player who leaves the install in place between sessions:
+
+- **The driver only loads when an administrator-context process triggers it.** In normal use that's the NTE launcher, which requires admin (UAC prompt or elevated service). Standard-user processes cannot cause the load themselves.
+- **Each launch opens a brief in-kernel window** during which any process — including standard-user malware already on the machine — can abuse the driver via the documented exploit chain.
+- **An admin-tier attacker can load the driver from your installed copy on demand**, without waiting for you to play.
+
+**Why BYOVD remains the preferred path even for admin-tier attackers:** administrator privilege alone does not let user-mode code terminate PPL-protected EDR processes (Defender, CrowdStrike, SentinelOne) or unload kernel-self-protected EDR drivers. BYOVD bridges that gap — the kernel-mediated kill primitive (§C2) runs with `PreviousMode = KernelMode` and bypasses the PPL access check admin user-mode code cannot. This is why ransomware operators like Interlock invest in BYOVD tooling rather than relying on admin-mode commands such as `Set-MpPreference -DisableRealtimeMonitoring` (which are gated by tamper protection on managed EDR). Your install on disk is a convenience to an admin-tier attacker — one less binary to drop — not a meaningful change in their ceiling capabilities.
 
 ---
 
