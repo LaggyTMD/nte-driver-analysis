@@ -2,6 +2,10 @@
 
 Revision history for `nte_driver_analysis_public.md`. Static-analysis primitives (§C1–§C7) have been stable since v1; revisions concentrate in §C8 (runtime behavior) and the privilege model.
 
+## v4.1 — 2026-04-30 (methodology clarification)
+
+The Methodology section of `nte_driver_analysis_public.md` and the Scope section of the README were clarified to honestly describe the §C8 runtime-verification testbed: a disposable bare-metal Windows 11 host (Secure Boot, VBS, HVCI / Memory Integrity enabled; no user data or saved credentials), distinct from the Linux static-analysis host. The previous wording carried "strictly defensive and entirely static" from v1, which was true for §C1–§C7 but stale once v2/v3/v4 added runtime evidence. No findings change.
+
 ## v4 — 2026-04-30
 
 Two runtime findings reverse v3's understanding of the deployment, both verified with Process Explorer (Sysinternals) running elevated across a full Launch → DLL-load → Main Menu → In Game session:

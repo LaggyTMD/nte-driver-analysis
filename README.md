@@ -42,4 +42,4 @@ The key was generated specifically for this publication and has no prior history
 
 ## Scope
 
-The analysis combines static analysis of the driver binary (which is never executed on the analysis host) with observational runtime verification of an unmodified live install in a sacrificial Windows VM. See the Methodology section of the report for full details.
+Static analysis of the driver binary on a Linux host (binary never executed there) plus observational runtime verification on a disposable bare-metal Windows 11 host (Secure Boot, VBS, HVCI / Memory Integrity enabled; no user data or saved credentials). Observation on the Windows host is non-invasive — no kernel debugger, no game instrumentation. See the Methodology section of the report for full details.
