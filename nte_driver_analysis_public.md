@@ -1,10 +1,6 @@
 # Neverness to Everness — Driver Analysis Report
 
-**Status:** Final — published 2026-04-28; updated 2026-04-29 post-launch with retail-installer confirmation
-
-**Changelog 2026-04-29 (v2):** §C8 elevated from "pending observation" to FAIL based on retail-binary testing (SHA256 byte-identical to preload; WDAC deny-by-hash test confirms launcher requires successful kernel-mode load). TL;DR, §C6, §Summary, §Recommendations, and §"What we cannot determine" updated accordingly. Static-analysis findings §C1–§C7 unchanged.
-
-**Changelog 2026-04-29 (v3):** Added §C8 runtime residency observation and System Informer caveat; added "Privilege required to abuse the driver" subsection clarifying load vs. use privilege requirements (admin to load, standard user to abuse during the brief load window). No changes to §C1–§C7 verdicts or the overall do-not-install verdict.
+**Status:** Final — published 2026-04-28; last updated 2026-04-30 (v4). Current verdict: **do-not-install**. §C8 runtime-residency reading reversed in v4 — driver is kernel-resident for the launcher's lifetime, not transient as v3 stated. Full revision history in [CHANGELOG.md](CHANGELOG.md).
 
 **Subject:** the kernel anti-cheat driver `GameDriverX64.sys` shipped with the Neverness to Everness (NTE) preload installer
 
@@ -14,11 +10,11 @@
 
 ## TL;DR for non-technical readers
 
-Neverness to Everness — a major gacha launch from Hotta Studio / Perfect World — ships `GameDriverX64.sys`, a freshly-built (2026-02-09) Windows kernel driver that **retains every documented vulnerability** of CVE-2025-61155 (October 2025). All five static-checkable vulnerability classes verified present: the same hardcoded "magic" authentication readable from the binary, the same arbitrary-process-termination primitive callable by any unprivileged process, the same prefix-match whitelist bypass, and the same DLL-name-spoofing gate on the file-open path. Cosmetic anti-static-analysis modifications were added; the underlying primitives were not fixed.
+Neverness to Everness, a major gacha launch from Hotta Studio / Perfect World, installs a small Windows program called `GameDriverX64.sys` that runs at the deepest level of the operating system — the same level Windows itself and antivirus software run at. Programs at this level can do anything they want to the computer. The version of this program shipped with NTE has security flaws that were publicly disclosed in October 2025 (CVE-2025-61155). It was rebuilt in February 2026, after the disclosure, but the same flaws are still present. Surface-level changes were made that make the program harder for analysts to inspect; none of the underlying problems were fixed.
 
-The driver is **signed under a brand-new corporate name** (`N2E Entertainment PTE. LTD.`, Singapore, cert valid through 2028) — different from the prior `Fedeen Games Limited` signer used elsewhere in the same install. The new cert is **verified absent** from the May 2025 published Microsoft Vulnerable Driver Blocklist. Ransomware operators (Interlock's "Hotta Killer" tool, January 2026; the "Reynolds" family, February 2026) already weaponize this exact driver class against defensive software on victim machines, and each PC install of NTE adds the same primitive — signed, loadable, and on disk — to the local attack surface.
+The flaws let any program already running on the same computer — including malicious ones — borrow NTE's installed driver to switch off antivirus or other security software, then act with the resulting freedom. Real ransomware groups already exploit the older version of this driver this way: Interlock's "Hotta Killer" tool (January 2026) and the "Reynolds" ransomware family (February 2026) both use it to disable Windows Defender and similar products on victims' computers before encrypting their files. Installing NTE places the same kind of tool, signed and ready to use, on every PC that runs the game.
 
-Findings indicate the BYOVD risk profile documented in CVE-2025-61155 is fully present in the NTE driver. On Windows, the kernel-mode driver load is a hard requirement for gameplay (verified §C8): WDAC deny-by-hash and the Microsoft Vulnerable Driver Blocklist both prevent the game from running rather than allowing safe play. The only client-side options that let you both play NTE and avoid the driver are platforms that don't ship one — mobile and console builds. See the Recommendations section for audience-specific guidance.
+The flawed program isn't optional on Windows. NTE's launcher loads it as soon as the launcher starts, and keeps it loaded for as long as the launcher is running — which includes the time the launcher sits minimized in the system tray after you close the game window (the default behavior). Microsoft's tools for blocking known-bad drivers, and the Windows policies that would let you block it yourself, both prevent the game from launching rather than letting you play safely without it. The mobile (iOS / Android) and console versions of NTE don't ship this driver and are substantially safer choices if you want to play. See the Recommendations section for guidance specific to your situation.
 
 ---
 
@@ -34,14 +30,14 @@ The driver was therefore a permanent **dormant attack primitive** on every insta
 
 ### The CVE and its weaponization
 
-- **CVE-2025-61155** was published in the National Vulnerability Database on **2025-10-28**. It documents an access-control vulnerability in `GameDriverX64.sys`'s IOCTL handlers, which lets any unprivileged local process terminate arbitrary processes — including security software — by sending crafted IOCTL requests. Authentication relies on a single hardcoded 32-bit value (`0xFA123456`) that any attacker can read directly from the driver binary.
+- **CVE-2025-61155** was published in the National Vulnerability Database on **2025-10-28**. It documents an access-control vulnerability in `GameDriverX64.sys`'s IOCTL handlers, which lets any unprivileged local process terminate arbitrary processes — including security software — by sending crafted IOCTL requests. Authentication relies on a single hardcoded 32-bit constant (`0xFA123456`) that any attacker can read directly from the driver binary.
 - **Fortinet FortiGuard Labs** documented a tool called **"Hotta Killer"** in January 2026: a DLL named `polers.dll` shipped by the **Interlock ransomware group**, which renames `GameDriverX64.sys` to `UpdateCheckerX64.sys` and uses it to kill Fortinet EDR processes before encryption.
 - **Securonix** published their own writeup ("CVE-2025-61155 and Interlock ransomware: A converging threat") confirming active in-the-wild use.
 - A second ransomware family, **"Reynolds"**, was disclosed on **2026-02-08** using the same driver family for BYOVD.
 
 ### Hotta's response
 
-Our April 2026 install of the *current* Tower of Fantasy PC client confirms the kernel driver has been pulled: no Hotta-, Fedeen-, or anti-cheat-shaped `.sys` exists anywhere in the install tree, the patcher logs reference no `.sys` files, and a full live gameplay capture shows no Hotta/Fedeen-signed kernel module registering as a service. The user-mode side retains documented family signatures (`CrashCapture.exe`, `QmGUI.dll`, signed by `Fedeen Games Limited`); only the kernel driver was removed. Between October 2025 (CVE publication) and February 2026 (the NTE driver build), the same vendor removed the driver from Tower of Fantasy. The NTE build dated 2026-02-09 contains the same vulnerability classes as the original CVE.
+Our April 2026 install of the *current* Tower of Fantasy PC client confirms the kernel driver has been pulled: no Hotta-, Fedeen-, or anti-cheat-shaped `.sys` exists anywhere in the install tree, the patcher logs reference no `.sys` files, and a full live gameplay capture shows no Hotta/Fedeen-signed kernel module registering as a service. The user-mode side retains documented family signatures (`CrashCapture.exe`, `QmGUI.dll`, signed by `Fedeen Games Limited`); only the kernel driver was removed. Between October 2025 (CVE publication) and February 2026 (the NTE driver build), the same vendor removed the driver from Tower of Fantasy and shipped a new build of the same family in NTE.
 
 ---
 
@@ -68,9 +64,7 @@ The NTE preload installer drops **eight separate kernel drivers** to disk during
 | `ACE-CORE.sys`, `.sys2`, `.sys3` | 1.2-1.8 MB | x86-64 | Three Tencent ACE CORE variants for different Windows versions |
 | `ACE-CORE.sysa`, `.sysa2`, `.sysa3` | 3.7-3.8 MB | **ARM64** | ACE for Windows on ARM — confirms NTE supports ARM PCs |
 
-We observed seven Tencent ACE drivers shipped alongside Hotta's `GameDriverX64.sys`. ACE is a known WHQL-signed commercial anti-cheat product (out of scope of this analysis with its own separate threat profile); the relative roles of ACE and `GameDriverX64.sys` in runtime detection are out of scope for this static analysis.
-
-The eighth driver, `GameDriverX64.sys`, is the subject of this report. Despite the redundancy with the already-comprehensive Tencent ACE stack, `GameDriverX64.sys` is shipped, signed, and loadable on every PC install.
+Seven of the eight drivers are Tencent ACE components, a known WHQL-signed commercial anti-cheat product. The eighth — `GameDriverX64.sys`, the subject of this report — is Hotta's own driver. The relative roles of the two anti-cheat layers at runtime are addressed in §C8.
 
 ### Driver fingerprint
 
@@ -236,9 +230,7 @@ The PE import table includes `PsGetProcessPeb`, `PsGetProcessWow64Process`, `Rtl
 | **NTE `GameDriverX64.sys` build timestamp** | **2026-02-09** |
 | NTE public launch | 2026-04-29 |
 
-The NTE driver was built **the day after** the Reynolds ransomware disclosure and **four days after** Vespalec's deep-dive writeup that documented every primitive analyzed in this report. The build is unambiguously **post-disclosure**: the vulnerabilities were publicly documented before this binary was produced.
-
-The cert rotation predates the CVE by eight weeks; the rebuild followed Vespalec's analysis by four days; the public launch came eleven weeks later.
+The NTE driver was built four days after Vespalec's deep-dive writeup that documented every primitive analyzed in this report. The cert rotation predates the CVE by eight weeks; the public launch came eleven weeks after the rebuild.
 
 ---
 
@@ -262,7 +254,7 @@ Microsoft's **Vulnerable Driver Blocklist** (auto-enforced on Windows 11 with HV
 
 ### Verdict
 
-**C7 — partially answered.** Signing chain is current, valid, not WHQL-attested. The new corporate identity introduces a defender concern independent of intent: a future blocklist entry against any prior Hotta-affiliated signer would not block a driver signed under `N2E Entertainment PTE. LTD.`. Defenders should add the new thumbprint to detection feeds independently of any future blocklist updates.
+**C7 — partially answered.** Signing chain is current, valid, not WHQL-attested. The new corporate identity creates a defender-relevant gap independent of intent: a future blocklist entry against any prior Hotta-affiliated signer would not block this driver. Defenders should track the new thumbprint directly.
 
 ---
 
@@ -272,11 +264,11 @@ Microsoft's **Vulnerable Driver Blocklist** (auto-enforced on Windows 11 with HV
 
 **Driver load is a hard runtime dependency.** A WDAC deny-by-hash policy was deployed in audit mode, then enforce. Audit logged Code Integrity event **3076** at game start (load attempted by `System` / PID 4); enforce promoted that to **3077**, the game errored with `0x7aab54` and exited within seconds, and the on-disk file remained byte-identical (no repair attempt). Deletion is separately rejected: the launcher re-downloads the file and demands a launcher restart.
 
-This is stronger than the ToF "drop-but-don't-load" pattern Vespalec documented — NTE actually requires the kernel-mode load to succeed. Tencent ACE is shipped alongside (seven separate ACE drivers including ARM64 variants) and is plausibly the primary cheat-enforcement layer; the runtime role of `GameDriverX64.sys` itself is not established by this analysis, but its load is non-optional from the launcher's perspective.
+This is materially worse than the ToF "drop-but-don't-load" pattern Vespalec documented: NTE both requires the kernel-mode load to succeed and keeps the driver kernel-resident throughout the launcher's lifetime. Of the eight kernel drivers dropped on disk (one Hotta, seven Tencent ACE), only `GameDriverX64.sys` was observed kernel-resident during runtime testing — no ACE driver appears in the live kernel module list during gameplay. `GameDriverX64.sys` is therefore not a vestigial CVE-era leftover; at runtime it is the only kernel-mode anti-cheat component actually loaded.
 
-**Runtime residency:** in audit-mode testing, `driverquery /v` (which queries the live kernel module list via `EnumDeviceDrivers`) returned empty before, during, and after gameplay; `Win32_SystemDriver` and `fltmc` likewise returned no match in any state. The Code Integrity log records exactly one 3076 load event per game launch (in enforce mode, two — likely a retry on failure). The driver therefore loads briefly during launcher startup, executes whatever startup-time work the launcher requires of it, and is unloaded before gameplay begins. The C8 verdict (FAIL — load required) is unchanged: the launcher will not run without a successful load. The driver's runtime residency is briefer than the gameplay session itself.
+**Runtime residency:** verified with Process Explorer (Sysinternals) running elevated across a full Launch → DLL-load → Main Menu → In Game capture. `GameDriverX64.sys` is loaded by `System` (PID 4) immediately on launcher start and remains kernel-resident continuously until the launcher process terminates. Closing only the game window does not unload the driver: the launcher minimizes to the system tray and the driver stays loaded with it. With the launcher's "close to tray" setting enabled (the default UX path) the launcher process effectively never terminates between sessions, leaving the driver kernel-resident across game-window close and re-open. Explicit launcher quit triggers a 30–45 second delay before the driver unloads from the kernel.
 
-**Caveat:** all four enumeration commands used here are Service Control Manager-based; they would miss a driver loaded without a persistent SCM service entry (a stealth-load pattern occasionally used by commercial anti-cheat). Authoritative cross-checks against the live kernel module list — tools like Sysinternals Process Explorer, System Informer, or WinObj that call `EnumDeviceDrivers` or `NtQuerySystemInformation` directly — cannot be reliably run during gameplay: Tencent ACE is documented as flagging and blocking System Informer specifically ([`winsiderss/systeminformer` issue #2729](https://github.com/winsiderss/systeminformer/issues/2729)) and terminates similar inspection tooling on detection. The transient-load conclusion is therefore consistent with the available SCM evidence but is not independently confirmed against the live kernel module list — an unresolved blindspot.
+**On the v3 transient-load reading:** v3 of this report concluded the driver loaded only briefly during launcher startup, based on Service Control Manager-backed enumeration (`driverquery /v`, `Win32_SystemDriver`, `fltmc`) returning empty during gameplay. The driver is loaded without registering as an SCM-managed service — a pattern sometimes seen in commercial anti-cheat — so SCM-based enumeration tools do not see it even while it is kernel-resident. The Process Explorer capture above (which enumerates the live kernel module list directly via `EnumDeviceDrivers`) overrides the SCM reading. The v3 caveat that Sysinternals tooling could not be reliably run during gameplay cited [`winsiderss/systeminformer` issue #2729](https://github.com/winsiderss/systeminformer/issues/2729) — that issue is specific to System Informer; Process Explorer is a separate Sysinternals tool and ran cleanly through the full session. The v3 "unresolved blindspot" is resolved, with the opposite conclusion to the one v3's SCM-only evidence pointed toward.
 
 ### Verdict
 
@@ -340,13 +332,13 @@ The CVE-2025-61155 exploit chain (C5 → C1 → C2: rename a DLL to a whiteliste
 
 | Action | Privilege required | When it happens |
 |---|---|---|
-| **Load** `GameDriverX64.sys` into the kernel | Administrator + `SeLoadDriverPrivilege` | The NTE launcher, automatically, on each game start — briefly, then unloads (§C8) |
-| **Use** the driver while it is loaded | Standard user | Any local process during the load window |
+| **Load** `GameDriverX64.sys` into the kernel | Administrator + `SeLoadDriverPrivilege` | NTE launcher on first start; driver remains kernel-resident for the launcher process's lifetime (which includes tray-minimized state — see §C8) |
+| **Use** the driver while it is loaded | Standard user | Any local process during the residency window above |
 
 For a typical player who leaves the install in place between sessions:
 
 - **The driver only loads when an administrator-context process triggers it.** In normal use that's the NTE launcher, which requires admin (UAC prompt or elevated service). Standard-user processes cannot cause the load themselves.
-- **Each launch opens a brief in-kernel window** during which any process — including standard-user malware already on the machine — can abuse the driver via the documented exploit chain.
+- **Once the launcher is running, the driver is continuously kernel-resident** — and the exploit chain is available to any standard-user process on the host, including standard-user malware already there. Closing the game window does not close the load window: with the launcher's "minimize to tray" setting (the default UX path), the launcher persists in the tray after the game closes and the driver stays loaded with it. Explicit launcher quit unloads the driver after a 30–45 second delay. For a player who treats the tray launcher as background, the practical abuse window is "while the user is logged in".
 - **An admin-tier attacker can load the driver from your installed copy on demand**, without waiting for you to play.
 
 **Why BYOVD remains the preferred path even for admin-tier attackers:** administrator privilege alone does not let user-mode code terminate PPL-protected EDR processes (Defender, CrowdStrike, SentinelOne) or unload kernel-self-protected EDR drivers. BYOVD bridges that gap — the kernel-mediated kill primitive (§C2) runs with `PreviousMode = KernelMode` and bypasses the PPL access check admin user-mode code cannot. This is why ransomware operators like Interlock invest in BYOVD tooling rather than relying on admin-mode commands such as `Set-MpPreference -DisableRealtimeMonitoring` (which are gated by tamper protection on managed EDR). Your install on disk is a convenience to an admin-tier attacker — one less binary to drop — not a meaningful change in their ceiling capabilities.
@@ -357,11 +349,9 @@ For a typical player who leaves the install in place between sessions:
 
 We cannot establish whether the rebuild was deliberate vulnerability-retention or negligence; whether `N2E Entertainment PTE. LTD.` is a Hotta subsidiary, contractor, or unrelated licensee; the full IOCTL code table (the documented codes are not present as literal byte patterns and may be runtime-constructed); or whether the NTE driver behaves identically to the CVE-era predecessor at runtime (in-VM dynamic tracing was out of scope). Whether Microsoft adds the cert to the Vulnerable Driver Blocklist in a future update is also unknown.
 
-We did not establish the runtime role of `GameDriverX64.sys` itself — only that its load is non-optional. Whether the driver does meaningful anti-cheat work, telemetry, license enforcement, or some other function is out of scope for static analysis. The C8 finding is structural (load required) rather than functional (purpose established).
+We did not establish the specific runtime work of `GameDriverX64.sys` — only that it is the lone kernel-mode anti-cheat component loaded during gameplay (the seven ACE drivers shipped on disk are not kernel-resident at runtime; ACE's user-mode `ACE-Base64.dll` injection into `HTGame.exe` handles the user-mode anti-cheat layer). Whether `GameDriverX64.sys` does object-callback enforcement, integrity scans, telemetry, license enforcement, or some combination is out of scope for static analysis.
 
-We also could not obtain the published CVE-era reference sample for byte-identical comparison: MalwareBazaar (by SHA1 / imphash / TLSH / multiple tag and signer searches), Wayback Machine, archive.org, and direct fetches of the major writeups (Vespalec, Fortinet, Securonix) all returned no driver binary. The Fortinet IOC table publishes only a SHA1 for the Interlock-renamed `UpdateCheckerX64.sys` variant, and that SHA1 is not in MalwareBazaar. The remaining paths are direct researcher contact (Vespalec, pollotherunner), Hybrid Analysis, or paid TIP access — none pursued here. This absence itself reflects a **disclosure-versus-availability gap**: CVE-2025-61155 has been public since October 2025 with active in-the-wild exploitation, but the sample binary is not in any open-access database, leaving defenders to block by hashes published in writeups, without independent access to verify newer variants like the one shipping in NTE.
-
-**Update (2026-04-29, post-launch):** the retail launch installer ships `GameDriverX64.sys` with SHA256 identical to the preload binary analyzed here. Findings in this report apply unchanged to the live retail build.
+We also could not obtain the published CVE-era reference sample for byte-identical comparison: MalwareBazaar (by SHA1 / `imphash` / TLSH / multiple tag and signer searches), Wayback Machine, archive.org, and direct fetches of the major writeups (Vespalec, Fortinet, Securonix) all returned no driver binary. The Fortinet IOC table publishes only a SHA1 for the Interlock-renamed `UpdateCheckerX64.sys` variant, and that SHA1 is not in MalwareBazaar. The remaining paths are direct researcher contact (Vespalec, pollotherunner), Hybrid Analysis, or paid TIP access — none pursued here. This absence itself reflects a **disclosure-versus-availability gap**: CVE-2025-61155 has been public since October 2025 with active in-the-wild exploitation, but the sample binary is not in any open-access database, leaving defenders to block by hashes published in writeups, without independent access to verify newer variants like the one shipping in NTE.
 
 None of these limitations affect the core verdict — C1, C2, C3, C4, and C5 are confirmed independently from the disassembly of the NTE driver, the driver is signed and loadable, and that is enough to mark `do-not-install`.
 
