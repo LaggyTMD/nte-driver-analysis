@@ -1,6 +1,20 @@
 # Changelog — NTE Driver Analysis
 
-Revision history for `nte_driver_analysis_public.md`. Static-analysis primitives (§C1–§C7) have been stable since v1; revisions concentrate in §C8 (runtime behavior) and the privilege model.
+Revision history for `nte_driver_analysis_public.md` (entries v1–v4.1) and `nte_driver_v2_analysis_public.md` (v2-report entry). Static-analysis primitives (§C1–§C7) have been stable since v1; revisions concentrate in §C8 (runtime behavior) and the privilege model.
+
+## v2 report — 2026-06-02 (`nte_driver_v2_analysis_public.md`)
+
+Initial publication of the delta report for `PGameProtectDriver_X64.sys` (SHA256 `9211a3d6…b4730`, build 2026-05-26), the post-launch rebuild that replaces `GameDriverX64.sys` four weeks after NTE launch. Static-only re-verification of CVE-2025-61155 primitives C1–C5 plus C6 (timestamp) and C7 (signing); C8 not re-tested, structurally inherited from v1. Findings:
+
+- **C1–C5 verdicts unchanged from v1 — all five primitives still present.** Same hardcoded magic `0xFA123456`, same `ZwOpenProcess`/`ZwTerminateProcess` kill primitive, same `ObRegisterCallbacks` dynamically resolved via stack-string, same three C5 whitelist DLLs, same `_strnicmp` C4 bug pattern.
+- **C7 cert unchanged.** Same `N2E Entertainment PTE. LTD.` signer, same serial, same SHA256 thumbprint — no rotation between February and May 2026 builds. Hash-keyed mitigations need the v2 SHA256 added; cert-keyed mitigations already cover both files.
+- **Surface metadata moved.** Renamed `GameDriverX64.sys` → `PGameProtectDriver_X64.sys`, version `8.26.2.9` → `8.26.5.25`, build env developer workstation → Jenkins CI (PDB `D:\Work\AntiCheat\src\HtDriver2.0\…` → `D:\jenkins\workspace\PGP_Driver\HDDriver\…`), size 67,664 → 62,032 bytes.
+- **C4 path altered, strictly more permissive.** The documented prefix-bug pattern (stack-string `"CrashCapture.e"` + `_strnicmp` with caller-name length) is still in the binary, but the function's return-value flow now most plausibly makes the gate fail-open under idiomatic BOOLEAN-read calling conventions.
+- **New name-only whitelist surface added** covering two Microsoft profiling-tool executables via `_stricmp` — net-new bypass primitives not in CVE; specific filenames withheld in the v2 report pending vendor notification.
+- **Anti-debug surface expanded.** `KdDisableDebugger`, `KdChangeOption`, `PsGetProcessDebugPort` now dynamically resolved; v1 did not.
+- **Resolver footprint broader.** 4 stack-string resolver sites → 5, with one mega-resolver pulling 10 APIs in a single function. Total `MmGetSystemRoutineAddress` call sites moved from 4 to 13.
+
+Overall verdict for the v2 build: **do-not-install** (unchanged from v1). README updated to point at both reports; `SHA256SUMS` updated to cover both reports; signature regenerated under the same LaggyTMD ed25519 key.
 
 ## v4.1 — 2026-04-30 (methodology clarification)
 
